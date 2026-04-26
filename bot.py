@@ -12,12 +12,13 @@ from telebot.types import (
 # ----------------- SOZLAMALAR -----------------
 TOKEN = os.environ.get('BOT_TOKEN')
 DB_URL = os.environ.get('DATABASE_URL')
+# Railway'da ADMIN_ID nomli o'zgaruvchi ochib, o'z ID raqamingizni yozing
 ADMIN_ID = int(os.environ.get('ADMIN_ID', 0)) 
 
 # Kanallar
-CHANNELS = ['@yaxshiboy_pubgmm', '@the797dvn'] # Ikkita telegram kanal qo'shildi
+CHANNELS = ['@yaxshiboy_pubgmm', '@uc_bot_tolov_kanali'] # Ikkita telegram kanal
 YT_CHANNEL = 'https://youtube.com/@yaxshiboypubgm?si=A6TVCbV-g8JQb5cG'
-RECEIPT_CHANNEL = '@uc_bot_tolov_kanali' # Chek (to'lovlar) kanalingizni yozing
+RECEIPT_CHANNEL = '@uc_bot_tolov_kanali' # Chek (to'lovlar) kanalingiz
 
 MIN_WITHDRAW = 30  
 REF_REWARD = 5     
@@ -86,6 +87,18 @@ def update_verification_and_reward(user_id):
                 return inviter_id
         conn.commit()
     return None
+
+def get_referral_stats(user_id):
+    """Foydalanuvchining referal statistikasini hisoblash"""
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM users WHERE inviter_id = %s", (user_id,))
+            total_refs = cur.fetchone()[0]
+            
+            cur.execute("SELECT COUNT(*) FROM users WHERE inviter_id = %s AND is_verified = TRUE", (user_id,))
+            verified_refs = cur.fetchone()[0]
+            
+            return total_refs, verified_refs
 
 def check_sub(user_id):
     for channel in CHANNELS:
@@ -196,9 +209,15 @@ def handle_menu_buttons(message):
     elif message.text == "🔗 Referal":
         bot_info = bot.get_me()
         ref_link = f"https://t.me/{bot_info.username}?start={user_id}"
+        
+        total_refs, verified_refs = get_referral_stats(user_id)
+        
         text = (
             f"🔗 **Sizning referal havolangiz:**\n`{ref_link}`\n\n"
-            f"Har bir taklif qilingan do'stingiz uchun **{REF_REWARD} UC** olasiz!"
+            f"📊 **Sizning statistikangiz:**\n"
+            f"👥 Umumiy chaqirilganlar: **{total_refs} ta**\n"
+            f"✅ Tasdiqlangan (UC keltirganlar): **{verified_refs} ta**\n\n"
+            f"Har bir taklif qilingan va tasdiqlangan do'stingiz uchun **{REF_REWARD} UC** olasiz!"
         )
         bot.send_message(user_id, text, parse_mode="Markdown")
 
@@ -281,7 +300,6 @@ def admin_action(call):
     
     with get_db_connection() as conn:
         with conn.cursor() as cur:
-            # pubg_id ni ham bazadan chaqirib olamiz
             cur.execute("SELECT user_id, amount, status, pubg_id FROM withdrawals WHERE id = %s", (req_id,))
             req = cur.fetchone()
             
@@ -295,17 +313,16 @@ def admin_action(call):
                 cur.execute("UPDATE withdrawals SET status = 'paid' WHERE id = %s", (req_id,))
                 bot.edit_message_text(f"✅ {amount} UC to'langanligi tasdiqlandi.", call.message.chat.id, call.message.message_id)
                 
-                # 1. Foydalanuvchiga xabar yuborish
                 try:
                     bot.send_message(user_id, f"🎉 **Tabriklaymiz!**\nSizning hisobingizga **{amount} UC** muvaffaqiyatli tushirildi. O'yinga kirib tekshirib ko'ring!", parse_mode="Markdown")
                 except:
                     pass
                 
-                # 2. Chek kanalga xabar yuborish (Minimalistik va professional dizaynda)
+                # Chek kanalga xabar yuborish
                 if RECEIPT_CHANNEL:
                     receipt_text = (
                         f"✅ **To'lov muvaffaqiyatli bajarildi**\n\n"
-                        f"👤 ID: `{user_id}`\n"
+                        f"👤 Foydalanuvchi ID: `{user_id}`\n"
                         f"🎮 PUBG ID: `{pubg_id}`\n"
                         f"💰 Miqdor: **{amount} UC**\n\n"
                         f"🤖 _Bizning bot orqali ishlangan_"
