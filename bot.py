@@ -10,22 +10,23 @@ from telebot.types import (
 )
 
 # ----------------- SOZLAMALAR -----------------
-# Railway Environment Variables orqali avtomatik olinadi
 TOKEN = os.environ.get('BOT_TOKEN')
 DB_URL = os.environ.get('DATABASE_URL')
+ADMIN_ID = int(os.environ.get('ADMIN_ID', 0)) 
+
+TG_CHANNEL = '@yaxshiboy_pubgmm' 
+YT_CHANNEL = 'https://youtube.com/@yaxshiboypubgm?si=A6TVCbV-g8JQb5cG'
+
+MIN_WITHDRAW = 30  # Yechish uchun minimal miqdor
+REF_REWARD = 5     # 1 ta referal uchun beriladigan UC
 
 bot = telebot.TeleBot(TOKEN)
-
-# Kanallaringizni shu yerda o'zgartiring
-TG_CHANNEL = '@yaxshiboy_pubgmm' # O'zingizning Telegram kanalingizni yozing
-YT_CHANNEL = 'https://youtube.com/@yaxshiboypubgm?si=A6TVCbV-g8JQb5cG'
 
 # ----------------- MA'LUMOTLAR BAZASI -----------------
 def get_db_connection():
     return psycopg2.connect(DB_URL)
 
 def init_db():
-    """Baza jadvallarini birinchi marta ishga tushganda yaratish"""
     with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute('''
@@ -35,6 +36,15 @@ def init_db():
                     inviter_id BIGINT,
                     balance INTEGER DEFAULT 0,
                     is_verified BOOLEAN DEFAULT FALSE
+                )
+            ''')
+            cur.execute('''
+                CREATE TABLE IF NOT EXISTS withdrawals (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT,
+                    pubg_id VARCHAR(50),
+                    amount INTEGER,
+                    status VARCHAR(20) DEFAULT 'pending'
                 )
             ''')
         conn.commit()
@@ -69,14 +79,13 @@ def update_verification_and_reward(user_id):
             inviter_id = result[0] if result else None
             
             if inviter_id:
-                cur.execute("UPDATE users SET balance = balance + 5 WHERE user_id = %s", (inviter_id,))
+                # Referal uchun 5 UC qo'shish
+                cur.execute("UPDATE users SET balance = balance + %s WHERE user_id = %s", (REF_REWARD, inviter_id))
                 return inviter_id
         conn.commit()
     return None
 
-# ----------------- KANALNI TEKSHIRISH -----------------
 def check_sub(user_id):
-    """Faqat Telegram kanalni qat'iy tekshiradi"""
     try:
         status = bot.get_chat_member(TG_CHANNEL, user_id).status
         if status in ['left', 'kicked']:
@@ -85,13 +94,19 @@ def check_sub(user_id):
         return False
     return True
 
+# ----------------- ASOSIY MENYU TUGMALARI -----------------
+def get_main_menu():
+    markup = ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.row(KeyboardButton("👤 Kabinet"), KeyboardButton("🔗 Referal"))
+    markup.row(KeyboardButton("💸 UC yechib olish"))
+    return markup
+
 # ----------------- ASOSIY MANTIQ -----------------
 @bot.message_handler(commands=['start'])
 def start_command(message):
     user_id = message.chat.id
     args = message.text.split()
     
-    # Referal ID ni aniqlash
     inviter_id = None
     if len(args) > 1 and args[1].isdigit():
         inviter = int(args[1])
@@ -101,111 +116,160 @@ def start_command(message):
     add_user(user_id, inviter_id)
     user_data = get_user(user_id)
 
-    # 1. Raqam borligini tekshirish
-    if not user_data[3]: # Telefon raqam yo'q bo'lsa
+    if not user_data[3]: 
         ask_for_contact(user_id)
         return
 
-    # 2. Raqam bo'lsa, kanallarni ko'rsatish
     proceed_to_channels(user_id)
 
 def ask_for_contact(user_id):
-    """Raqam so'rash uchun maxsus klaviatura"""
     markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-    btn = KeyboardButton("📱 Raqamni yuborish", request_contact=True)
-    markup.add(btn)
-    
-    bot.send_message(
-        user_id, 
-        "Tizimdan foydalanish uchun telefon raqamingizni tasdiqlang.\n\n_Quyidagi tugmani bosing:_ 👇", 
-        reply_markup=markup,
-        parse_mode="Markdown"
-    )
+    markup.add(KeyboardButton("📱 Raqamni yuborish", request_contact=True))
+    bot.send_message(user_id, "Tizimdan foydalanish uchun telefon raqamingizni tasdiqlang.\n\n_Quyidagi tugmani bosing:_ 👇", reply_markup=markup, parse_mode="Markdown")
 
 @bot.message_handler(content_types=['contact'])
 def contact_handler(message):
     user_id = message.chat.id
-    
-    # Fake kontakt emasligini tekshirish
     if message.contact.user_id != user_id:
         bot.send_message(user_id, "Iltimos, o'zingizga tegishli bo'lgan raqamni yuboring.")
         return
 
-    phone = message.contact.phone_number
-    update_phone(user_id, phone)
-    
-    # Ekranni tozalab (ReplyKeyboardRemove), obunaga o'tkazish
-    bot.send_message(
-        user_id, 
-        "✅ Raqamingiz muvaffaqiyatli qabul qilindi.", 
-        reply_markup=ReplyKeyboardRemove()
-    )
+    update_phone(user_id, message.contact.phone_number)
+    bot.send_message(user_id, "✅ Raqamingiz muvaffaqiyatli qabul qilindi.", reply_markup=ReplyKeyboardRemove())
     proceed_to_channels(user_id)
 
 def proceed_to_channels(user_id):
-    """Minimalistik dizaynda kanallarni ko'rsatish"""
     user_data = get_user(user_id)
 
     if not check_sub(user_id):
         markup = InlineKeyboardMarkup(row_width=1)
-        
-        btn_tg = InlineKeyboardButton(text="Telegram kanal", url=f"https://t.me/{TG_CHANNEL.replace('@', '')}")
-        btn_yt = InlineKeyboardButton(text="YouTube kanal", url=YT_CHANNEL)
-        btn_verify = InlineKeyboardButton(text="Tasdiqlash", callback_data="verify_sub")
-        
-        markup.add(btn_tg, btn_yt, btn_verify)
-
-        bot.send_message(
-            user_id, 
-            "Tizimdan to'liq foydalanish va balansingizni boshqarish uchun quyidagi resurslarimizga obuna bo'ling:", 
-            reply_markup=markup
+        markup.add(
+            InlineKeyboardButton(text="Telegram kanal", url=f"https://t.me/{TG_CHANNEL.replace('@', '')}"),
+            InlineKeyboardButton(text="YouTube kanal", url=YT_CHANNEL),
+            InlineKeyboardButton(text="Tasdiqlash", callback_data="verify_sub")
         )
+        bot.send_message(user_id, "Balansingizni boshqarish uchun quyidagi resurslarimizga obuna bo'ling:", reply_markup=markup)
     else:
-        # Avval a'zo bo'lgan, lekin is_verified=False bo'lsa
         if not user_data[1]: 
             reward_inviter(user_id)
-        show_dashboard(user_id)
+        bot.send_message(user_id, "✅ Bosh menyuga xush kelibsiz!", reply_markup=get_main_menu())
 
 @bot.callback_query_handler(func=lambda call: call.data == "verify_sub")
 def verify_callback(call):
     user_id = call.message.chat.id
-    
     if check_sub(user_id):
-        # Eski xabarni o'chirish (tozalik uchun)
         bot.delete_message(user_id, call.message.message_id)
-        
         user_data = get_user(user_id)
         if not user_data[1]:
             reward_inviter(user_id)
-            
-        show_dashboard(user_id)
+        bot.send_message(user_id, "✅ Muvaffaqiyatli tasdiqlandi. Bosh menyuga xush kelibsiz!", reply_markup=get_main_menu())
     else:
-        # Tepa qismda pop-up shaklida xatolik chiqadi
         bot.answer_callback_query(call.id, "Barcha kanallarga obuna bo'lmagansiz.", show_alert=True)
 
 def reward_inviter(user_id):
     inviter_id = update_verification_and_reward(user_id)
     if inviter_id:
         try:
-            bot.send_message(inviter_id, "🎉 Yangi referal qo'shildi. Balansingiz 5 UC ga oshdi.")
+            bot.send_message(inviter_id, f"🎉 Yangi referal qo'shildi. Balansingiz {REF_REWARD} UC ga oshdi.")
         except:
             pass 
 
-def show_dashboard(user_id):
-    """Foydalanuvchining shaxsiy kabineti"""
+# ----------------- TUGMALARNI BOSHQARISH -----------------
+@bot.message_handler(func=lambda message: message.text in ["👤 Kabinet", "🔗 Referal", "💸 UC yechib olish"])
+def handle_menu_buttons(message):
+    user_id = message.chat.id
     user_data = get_user(user_id)
-    balance = user_data[0] # Balans miqdori
-    bot_info = bot.get_me()
-    ref_link = f"https://t.me/{bot_info.username}?start={user_id}"
     
-    text = (
-        f"**Shaxsiy kabinet**\n\n"
-        f"💰 Balans: **{balance} UC**\n\n"
-        f"🔗 Referal havola:\n`{ref_link}`\n\n"
-        f"_Do'stlaringizni taklif qiling va UC ga ega bo'ling!_"
-    )
-    bot.send_message(user_id, text, parse_mode="Markdown")
+    # Har qanday tugmani bosganda avval obunani tekshirish
+    if not check_sub(user_id):
+        proceed_to_channels(user_id)
+        return
 
-# Server uxlab qolmasligi uchun infinity_polling
+    balance = user_data[0] 
+
+    if message.text == "👤 Kabinet":
+        text = f"**Shaxsiy kabinet**\n\n💰 Sizning balansingiz: **{balance} UC**"
+        bot.send_message(user_id, text, parse_mode="Markdown")
+
+    elif message.text == "🔗 Referal":
+        bot_info = bot.get_me()
+        ref_link = f"https://t.me/{bot_info.username}?start={user_id}"
+        text = (
+            f"🔗 **Sizning referal havolangiz:**\n`{ref_link}`\n\n"
+            f"Har bir taklif qilingan va kanallarga a'zo bo'lgan do'stingiz uchun **{REF_REWARD} UC** olasiz!"
+        )
+        bot.send_message(user_id, text, parse_mode="Markdown")
+
+    elif message.text == "💸 UC yechib olish":
+        if balance < MIN_WITHDRAW:
+            bot.send_message(user_id, f"❌ Yechib olish uchun balansingizda kamida **{MIN_WITHDRAW} UC** bo'lishi kerak.\n\nSizda hozir: **{balance} UC**", parse_mode="Markdown")
+            return
+        
+        msg = bot.send_message(user_id, "Iltimos, o'yin ichidagi **PUBG ID** raqamingizni aniq qilib yuboring:", reply_markup=ReplyKeyboardRemove(), parse_mode="Markdown")
+        bot.register_next_step_handler(msg, process_pubg_id)
+
+# ----------------- UC YECHIB OLISH MANTIQI -----------------
+def process_pubg_id(message):
+    user_id = message.chat.id
+    pubg_id = message.text
+    
+    user_data = get_user(user_id)
+    balance = user_data[0]
+    
+    if balance < MIN_WITHDRAW:
+        bot.send_message(user_id, "Balansingizda yetarli UC yo'q.", reply_markup=get_main_menu())
+        return
+        
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE users SET balance = balance - %s WHERE user_id = %s", (balance, user_id))
+            cur.execute("INSERT INTO withdrawals (user_id, pubg_id, amount) VALUES (%s, %s, %s) RETURNING id", (user_id, pubg_id, balance))
+            req_id = cur.fetchone()[0]
+        conn.commit()
+        
+    bot.send_message(user_id, "✅ So'rovingiz adminga yuborildi. Hisobingizga tushganda sizga xabar beramiz.", reply_markup=get_main_menu())
+    
+    if ADMIN_ID != 0:
+        admin_text = f"🔔 **Yangi UC yechish so'rovi!**\n\nUser ID: `{user_id}`\nPUBG ID: `{pubg_id}`\nMiqdor: **{balance} UC**"
+        markup = InlineKeyboardMarkup(row_width=2)
+        markup.add(
+            InlineKeyboardButton(text="✅ To'landi", callback_data=f"pay_{req_id}"),
+            InlineKeyboardButton(text="❌ Bekor qilish", callback_data=f"cancel_{req_id}")
+        )
+        try:
+            bot.send_message(ADMIN_ID, admin_text, reply_markup=markup, parse_mode="Markdown")
+        except:
+            pass
+
+# ----------------- ADMIN BOSHQARUVI -----------------
+@bot.callback_query_handler(func=lambda call: call.data.startswith("pay_") or call.data.startswith("cancel_"))
+def admin_action(call):
+    action, req_id = call.data.split("_")
+    req_id = int(req_id)
+    
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT user_id, amount, status FROM withdrawals WHERE id = %s", (req_id,))
+            req = cur.fetchone()
+            
+            if not req or req[2] != 'pending':
+                bot.answer_callback_query(call.id, "Bu so'rov allaqachon bajarilgan.", show_alert=True)
+                return
+                
+            user_id, amount, status = req
+            
+            if action == "pay":
+                cur.execute("UPDATE withdrawals SET status = 'paid' WHERE id = %s", (req_id,))
+                bot.edit_message_text(f"✅ {amount} UC to'langanligi tasdiqlandi.", call.message.chat.id, call.message.message_id)
+                bot.send_message(user_id, f"🎉 **Tabriklaymiz!**\nSizning hisobingizga **{amount} UC** muvaffaqiyatli tushirildi. O'yinga kirib tekshirib ko'ring!", parse_mode="Markdown")
+            
+            elif action == "cancel":
+                cur.execute("UPDATE withdrawals SET status = 'cancelled' WHERE id = %s", (req_id,))
+                cur.execute("UPDATE users SET balance = balance + %s WHERE user_id = %s", (amount, user_id)) 
+                bot.edit_message_text(f"❌ So'rov bekor qilindi. UC qaytarildi.", call.message.chat.id, call.message.message_id)
+                bot.send_message(user_id, f"❌ Sizning {amount} UC yechish so'rovingiz bekor qilindi. UC balansingizga qaytarildi.")
+                
+        conn.commit()
+
 if __name__ == "__main__":
     bot.infinity_polling()
