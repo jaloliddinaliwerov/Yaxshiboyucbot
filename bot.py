@@ -270,6 +270,68 @@ def admin_action(call):
                 bot.send_message(user_id, f"❌ Sizning {amount} UC yechish so'rovingiz bekor qilindi. UC balansingizga qaytarildi.")
                 
         conn.commit()
+# ----------------- UC QO'SHISH (ADMIN YASHIRIN KOMANDASI) -----------------
+@bot.message_handler(commands=['adduc'])
+def admin_add_uc(message):
+    admin_id = message.chat.id
+    
+    # Faqat ADMIN_ID ga ruxsat berish
+    if admin_id != ADMIN_ID:
+        return
 
+    args = message.text.split()
+    
+    # Formatni tekshirish
+    if len(args) != 3:
+        bot.send_message(
+            admin_id, 
+            "❌ **Xato format.**\n\nTo'g'ri foydalanish:\n`/adduc [foydalanuvchi_id] [miqdor]`\n_Masalan: /adduc 123456789 100_", 
+            parse_mode="Markdown"
+        )
+        return
+
+    target_user_id = args[1]
+    amount = args[2]
+
+    if not target_user_id.isdigit() or not amount.lstrip('-').isdigit():
+        bot.send_message(admin_id, "❌ ID va miqdor faqat raqamlardan iborat bo'lishi kerak.")
+        return
+
+    target_user_id = int(target_user_id)
+    amount = int(amount)
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            # Foydalanuvchi bazada borligini tekshirish
+            cur.execute("SELECT user_id, balance FROM users WHERE user_id = %s", (target_user_id,))
+            user = cur.fetchone()
+            
+            if not user:
+                bot.send_message(admin_id, f"❌ `{target_user_id}` ID li foydalanuvchi bazada topilmadi.", parse_mode="Markdown")
+                return
+            
+            # Balansni yangilash
+            cur.execute("UPDATE users SET balance = balance + %s WHERE user_id = %s", (amount, target_user_id))
+            new_balance = user[1] + amount
+            
+        conn.commit()
+
+    # Adminga hisobot
+    bot.send_message(
+        admin_id, 
+        f"✅ **Muvaffaqiyatli!**\n\nFoydalanuvchi: `{target_user_id}`\nQo'shildi: **{amount} UC**\nYangi balans: **{new_balance} UC**", 
+        parse_mode="Markdown"
+    )
+    
+    # Foydalanuvchiga xabar yuborish
+    try:
+        if amount > 0:
+            bot.send_message(
+                target_user_id, 
+                f"🎁 **Bonus!**\n\nAdmin tomonidan hisobingizga **{amount} UC** qo'shildi!\nKabinetga kirib balansingizni tekshirishingiz mumkin.", 
+                parse_mode="Markdown"
+            )
+    except:
+        bot.send_message(admin_id, "⚠️ Foydalanuvchi botni bloklagan ko'rinadi, shuning uchun unga xabar bormadi. Lekin balans bazada yangilandi.")
 if __name__ == "__main__":
     bot.infinity_polling()
