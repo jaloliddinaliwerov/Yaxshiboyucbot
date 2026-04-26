@@ -18,6 +18,7 @@ ADMIN_ID = int(os.environ.get('ADMIN_ID', 0))
 # Kanallar
 CHANNELS = ['@yaxshiboy_pubgmm', '@uc_bot_tolov_kanali'] # Ikkita telegram kanal
 YT_CHANNEL = 'https://youtube.com/@yaxshiboypubgm?si=A6TVCbV-g8JQb5cG'
+INSTA_PROFILE = 'https://www.instagram.com/yaxshiboy_gamer?igsh=OG9uMzFiMm9oc2w2&utm_source=qr'
 RECEIPT_CHANNEL = '@uc_bot_tolov_kanali' # Chek (to'lovlar) kanalingiz
 
 MIN_WITHDRAW = 30  
@@ -160,8 +161,9 @@ def proceed_to_channels(user_id):
     if not check_sub(user_id):
         markup = InlineKeyboardMarkup(row_width=1)
         for i, channel in enumerate(CHANNELS, 1):
-            markup.add(InlineKeyboardButton(text=f"Telegram kanal {i}", url=f"https://t.me/{channel.replace('@', '')}"))
+            markup.add(InlineKeyboardButton(text=f"Telegram kanal", url=f"https://t.me/{channel.replace('@', '')}"))
         markup.add(InlineKeyboardButton(text="YouTube kanal", url=YT_CHANNEL))
+        markup.add(InlineKeyboardButton(text="Instagram profil", url=INSTA_PROFILE)) # Mana shu qator qo'shildi
         markup.add(InlineKeyboardButton(text="✅ Tasdiqlash", callback_data="verify_sub"))
         
         bot.send_message(user_id, "Balansingizni boshqarish uchun quyidagi resurslarimizga obuna bo'ling:", reply_markup=markup)
