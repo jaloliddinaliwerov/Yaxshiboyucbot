@@ -12,10 +12,12 @@ from telebot.types import (
 # ----------------- SOZLAMALAR -----------------
 TOKEN = os.environ.get('BOT_TOKEN')
 DB_URL = os.environ.get('DATABASE_URL')
-# Railway'da ADMIN_ID nomli o'zgaruvchi ochib, o'z ID raqamingizni yozing
-ADMIN_ID = int(os.environ.get('ADMIN_ID', 0)) 
 
-# Kanallar
+# Railway'da ikkala admin uchun ham Variables oching:
+ADMIN_ID = int(os.environ.get('ADMIN_ID', 0))       # 1-Admin (Asosiy - Reklama tarqata oladi)
+ADMIN_2_ID = int(os.environ.get('ADMIN_2_ID', 0))   # 2-Admin (Yordamchi - Faqat to'lov va UC qo'shadi)
+
+# Majburiy kanallar va tarmoqlar
 CHANNELS = ['@yaxshiboy_pubgmm', '@uc_bot_tolov_kanali', '@the797dvn'] # Ikkita telegram kanal
 YT_CHANNEL = 'https://youtube.com/@yaxshiboypubgm?si=A6TVCbV-g8JQb5cG'
 INSTA_PROFILE = 'https://www.instagram.com/yaxshiboy_gamer?igsh=OG9uMzFiMm9oc2w2&utm_source=qr'
@@ -90,7 +92,6 @@ def update_verification_and_reward(user_id):
     return None
 
 def get_referral_stats(user_id):
-    """Foydalanuvchining referal statistikasini hisoblash"""
     with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM users WHERE inviter_id = %s", (user_id,))
@@ -161,9 +162,9 @@ def proceed_to_channels(user_id):
     if not check_sub(user_id):
         markup = InlineKeyboardMarkup(row_width=1)
         for i, channel in enumerate(CHANNELS, 1):
-            markup.add(InlineKeyboardButton(text=f"Telegram kanal", url=f"https://t.me/{channel.replace('@', '')}"))
+            markup.add(InlineKeyboardButton(text=f"Telegram kanal {i}", url=f"https://t.me/{channel.replace('@', '')}"))
         markup.add(InlineKeyboardButton(text="YouTube kanal", url=YT_CHANNEL))
-        markup.add(InlineKeyboardButton(text="Instagram profil", url=INSTA_PROFILE)) # Mana shu qator qo'shildi
+        markup.add(InlineKeyboardButton(text="Instagram profil", url=INSTA_PROFILE))
         markup.add(InlineKeyboardButton(text="✅ Tasdiqlash", callback_data="verify_sub"))
         
         bot.send_message(user_id, "Balansingizni boshqarish uchun quyidagi resurslarimizga obuna bo'ling:", reply_markup=markup)
@@ -211,7 +212,6 @@ def handle_menu_buttons(message):
     elif message.text == "🔗 Referal":
         bot_info = bot.get_me()
         ref_link = f"https://t.me/{bot_info.username}?start={user_id}"
-        
         total_refs, verified_refs = get_referral_stats(user_id)
         
         text = (
@@ -279,20 +279,22 @@ def process_pubg_id(message):
         conn.commit()
         
     del pending_withdraws[user_id]
+    bot.send_message(user_id, "✅ So'rovingiz adminlarga yuborildi. Hisobingizga tushganda sizga xabar beramiz.", reply_markup=get_main_menu())
     
-    bot.send_message(user_id, "✅ So'rovingiz adminga yuborildi. Hisobingizga tushganda sizga xabar beramiz.", reply_markup=get_main_menu())
+    # Ikkala adminga ham so'rovni yuborish
+    admin_text = f"🔔 **Yangi UC yechish so'rovi!**\n\nUser ID: `{user_id}`\nPUBG ID: `{pubg_id}`\nMiqdor: **{amount} UC**"
+    markup = InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        InlineKeyboardButton(text="✅ To'landi", callback_data=f"pay_{req_id}"),
+        InlineKeyboardButton(text="❌ Bekor qilish", callback_data=f"cancel_{req_id}")
+    )
     
-    if ADMIN_ID != 0:
-        admin_text = f"🔔 **Yangi UC yechish so'rovi!**\n\nUser ID: `{user_id}`\nPUBG ID: `{pubg_id}`\nMiqdor: **{amount} UC**"
-        markup = InlineKeyboardMarkup(row_width=2)
-        markup.add(
-            InlineKeyboardButton(text="✅ To'landi", callback_data=f"pay_{req_id}"),
-            InlineKeyboardButton(text="❌ Bekor qilish", callback_data=f"cancel_{req_id}")
-        )
-        try:
-            bot.send_message(ADMIN_ID, admin_text, reply_markup=markup, parse_mode="Markdown")
-        except:
-            pass
+    for admin in [ADMIN_ID, ADMIN_2_ID]:
+        if admin != 0:
+            try:
+                bot.send_message(admin, admin_text, reply_markup=markup, parse_mode="Markdown")
+            except:
+                pass
 
 # ----------------- ADMIN BOSHQARUVI VA CHEK KANAL -----------------
 @bot.callback_query_handler(func=lambda call: call.data.startswith("pay_") or call.data.startswith("cancel_"))
@@ -314,17 +316,15 @@ def admin_action(call):
             if action == "pay":
                 cur.execute("UPDATE withdrawals SET status = 'paid' WHERE id = %s", (req_id,))
                 bot.edit_message_text(f"✅ {amount} UC to'langanligi tasdiqlandi.", call.message.chat.id, call.message.message_id)
-                
                 try:
                     bot.send_message(user_id, f"🎉 **Tabriklaymiz!**\nSizning hisobingizga **{amount} UC** muvaffaqiyatli tushirildi. O'yinga kirib tekshirib ko'ring!", parse_mode="Markdown")
                 except:
                     pass
                 
-                # Chek kanalga xabar yuborish
                 if RECEIPT_CHANNEL:
                     receipt_text = (
                         f"✅ **To'lov muvaffaqiyatli bajarildi**\n\n"
-                        f"👤 Foydalanuvchi ID: `{user_id}`\n"
+                        f"👤 ID: `{user_id}`\n"
                         f"🎮 PUBG ID: `{pubg_id}`\n"
                         f"💰 Miqdor: **{amount} UC**\n\n"
                         f"🤖 _Bizning bot orqali ishlangan_"
@@ -344,11 +344,11 @@ def admin_action(call):
                     pass
         conn.commit()
 
-# --- ADMIN UC QO'SHISH KOMANDASI ---
+# --- ADMIN UC QO'SHISH KOMANDASI (Ikkala adminga ham ruxsat) ---
 @bot.message_handler(commands=['adduc'])
 def admin_add_uc(message):
     admin_id = message.chat.id
-    if admin_id != ADMIN_ID:
+    if admin_id not in [ADMIN_ID, ADMIN_2_ID]:
         return
 
     args = message.text.split()
@@ -370,11 +370,9 @@ def admin_add_uc(message):
         with conn.cursor() as cur:
             cur.execute("SELECT user_id, balance FROM users WHERE user_id = %s", (target_user_id,))
             user = cur.fetchone()
-            
             if not user:
                 bot.send_message(admin_id, f"❌ `{target_user_id}` ID topilmadi.", parse_mode="Markdown")
                 return
-            
             cur.execute("UPDATE users SET balance = balance + %s WHERE user_id = %s", (amount, target_user_id))
             new_balance = user[1] + amount
         conn.commit()
@@ -386,6 +384,65 @@ def admin_add_uc(message):
     except:
         pass
 
+# --- REKLAMA YUBORISH (Faqat Asosiy 1-Admin uchun) ---
+@bot.message_handler(commands=['reklama'])
+def broadcast_command(message):
+    admin_id = message.chat.id
+    # FAQAT 1-adminga ruxsat
+    if admin_id != ADMIN_ID:
+        return
+
+    msg = bot.send_message(
+        admin_id, 
+        "📢 **Reklama yuborish bo'limi**\n\nBarcha foydalanuvchilarga yubormoqchi bo'lgan xabaringizni (matn, rasm yoki video) shu yerga tashlang:", 
+        parse_mode="Markdown"
+    )
+    bot.register_next_step_handler(msg, process_broadcast)
+
+def process_broadcast(message):
+    admin_id = message.chat.id
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT user_id FROM users")
+            users = cur.fetchall()
+            
+    bot.send_message(admin_id, "⏳ Reklama yuborish boshlandi. Bu biroz vaqt olishi mumkin...")
+    
+    success_count = 0
+    for user in users:
+        try:
+            bot.copy_message(user[0], admin_id, message.message_id)
+            success_count += 1
+        except:
+            pass
+            
+    bot.send_message(admin_id, f"✅ **Reklama yakunlandi!**\n\nMuvaffaqiyatli yuborildi: **{success_count} ta** foydalanuvchiga.", parse_mode="Markdown")
+
+# --- KANALDAN CHIQIB KETGANLARNI JAZOLASH (ANTI-CHEAT 2.0) ---
+@bot.chat_member_handler()
+def handle_chat_member(message):
+    if message.new_chat_member.status in ['left', 'kicked']:
+        user_id = message.new_chat_member.user.id
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT inviter_id, is_verified FROM users WHERE user_id = %s", (user_id,))
+                user = cur.fetchone()
+                
+                if user and user[0] and user[1]:
+                    inviter_id = user[0]
+                    cur.execute("UPDATE users SET balance = balance - %s WHERE user_id = %s", (REF_REWARD, inviter_id))
+                    cur.execute("UPDATE users SET is_verified = FALSE WHERE user_id = %s", (user_id,))
+                    try:
+                        bot.send_message(
+                            inviter_id, 
+                            f"⚠️ **Ogohlantirish!**\n\nSiz taklif qilgan do'stlaringizdan biri homiy kanallarni tark etdi. Shu sababli balansingizdan **{REF_REWARD} UC** ayirildi.", 
+                            parse_mode="Markdown"
+                        )
+                    except:
+                        pass
+            conn.commit()
+
 if __name__ == "__main__":
-    bot.remove_webhook() # Mana shu tozalovchi qatorni qo'shing
-    bot.infinity_polling()
+    bot.remove_webhook()
+    # chat_member ruxsati qochqinlarni ushlash uchun muhim. Bot kanalda admin bo'lishi shart!
+    bot.infinity_polling(allowed_updates=['message', 'callback_query', 'chat_member'])
