@@ -16,7 +16,7 @@ DB_URL = os.environ.get('DATABASE_URL')
 ADMIN_ID = int(os.environ.get('ADMIN_ID', 0)) 
 
 # Kanallar
-CHANNELS = ['@yaxshiboy_pubgmm', '@uc_bot_tolov_kanali'] # Ikkita telegram kanal
+CHANNELS = ['@yaxshiboy_pubgmm', '@uc_bot_tolov_kanali', '"the797dvn'] # Ikkita telegram kanal
 YT_CHANNEL = 'https://youtube.com/@yaxshiboypubgm?si=A6TVCbV-g8JQb5cG'
 INSTA_PROFILE = 'https://www.instagram.com/yaxshiboy_gamer?igsh=OG9uMzFiMm9oc2w2&utm_source=qr'
 RECEIPT_CHANNEL = '@uc_bot_tolov_kanali' # Chek (to'lovlar) kanalingiz
@@ -387,4 +387,5 @@ def admin_add_uc(message):
         pass
 
 if __name__ == "__main__":
+    bot.remove_webhook() # Mana shu tozalovchi qatorni qo'shing
     bot.infinity_polling()
