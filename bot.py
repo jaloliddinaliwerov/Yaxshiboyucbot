@@ -18,7 +18,7 @@ DB_URL = os.environ.get('DATABASE_URL')
 ADMIN_ID = int(os.environ.get('ADMIN_ID', 0))       # 1-Admin (Asosiy)
 ADMIN_2_ID = int(os.environ.get('ADMIN_2_ID', 0))   # 2-Admin (Yordamchi)
 
-CHANNELS = ['@yaxshiboy_pubgmm', '@uc_bot_tolov_kanali', '@kepakstore'] # Ikkita telegram kanal
+CHANNELS = ['@kepakstore', '@uc_bot_tolov_kanali', '@yaxshiboy_pubgmm'] # Ikkita telegram kanal
 YT_CHANNEL = 'https://youtube.com/@yaxshiboypubgm?si=A6TVCbV-g8JQb5cG'
 INSTA_PROFILE = 'https://www.instagram.com/yaxshiboy_gamer?igsh=OG9uMzFiMm9oc2w2&utm_source=qr'
 RECEIPT_CHANNEL = '@uc_bot_tolov_kanali' # Chek (to'lovlar) kanalingiz
